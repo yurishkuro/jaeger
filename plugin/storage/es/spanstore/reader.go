@@ -221,17 +221,32 @@ func (s *SpanReader) FindTraces(ctx context.Context, traceQuery *spanstore.Trace
 	span, ctx := opentracing.StartSpanFromContext(ctx, "FindTraces")
 	defer span.Finish()
 
-	if err := validateQuery(traceQuery); err != nil {
-		return nil, err
-	}
-	if traceQuery.NumTraces == 0 {
-		traceQuery.NumTraces = defaultNumTraces
-	}
 	uniqueTraceIDs, err := s.findTraceIDs(ctx, traceQuery)
 	if err != nil {
 		return nil, err
 	}
 	return s.multiRead(ctx, uniqueTraceIDs, traceQuery.StartTimeMin, traceQuery.StartTimeMax)
+}
+
+// FindTraceIDs retrieves traceIDs that match the traceQuery
+func (s *SpanReader) FindTraceIDs(ctx context.Context, traceQuery *spanstore.TraceQueryParameters) ([]model.TraceID, error) {
+	span, ctx := opentracing.StartSpanFromContext(ctx, "FindTraceID")
+	defer span.Finish()
+
+	dbTraceIDs, err := s.findTraceIDs(ctx, traceQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	var modelTraceIDs []model.TraceID
+	for _, traceID := range dbTraceIDs {
+		modelTraceID, err := model.TraceIDFromString(traceID)
+		if err != nil {
+			s.logger.Error("Cannot marshal traceID retrieved from ES", zap.Error(err))
+		}
+		modelTraceIDs = append(modelTraceIDs, modelTraceID)
+	}
+	return modelTraceIDs, nil
 }
 
 func (s *SpanReader) multiRead(ctx context.Context, traceIDs []string, startTime, endTime time.Time) ([]*model.Trace, error) {
@@ -334,6 +349,14 @@ func validateQuery(p *spanstore.TraceQueryParameters) error {
 func (s *SpanReader) findTraceIDs(ctx context.Context, traceQuery *spanstore.TraceQueryParameters) ([]string, error) {
 	childSpan, _ := opentracing.StartSpanFromContext(ctx, "findTraceIDs")
 	defer childSpan.Finish()
+
+	if err := validateQuery(traceQuery); err != nil {
+		return nil, err
+	}
+	if traceQuery.NumTraces == 0 {
+		traceQuery.NumTraces = defaultNumTraces
+	}
+
 	//  Below is the JSON body to our HTTP GET request to ElasticSearch. This function creates this.
 	// {
 	//      "size": 0,
@@ -431,23 +454,23 @@ func (s *SpanReader) buildTraceIDSubAggregation() elastic.Aggregation {
 func (s *SpanReader) buildFindTraceIDsQuery(traceQuery *spanstore.TraceQueryParameters) elastic.Query {
 	boolQuery := elastic.NewBoolQuery()
 
-	//add duration query
+	// add duration query
 	if traceQuery.DurationMax != 0 || traceQuery.DurationMin != 0 {
 		durationQuery := s.buildDurationQuery(traceQuery.DurationMin, traceQuery.DurationMax)
 		boolQuery.Must(durationQuery)
 	}
 
-	//add startTime query
+	// add startTime query
 	startTimeQuery := s.buildStartTimeQuery(traceQuery.StartTimeMin, traceQuery.StartTimeMax)
 	boolQuery.Must(startTimeQuery)
 
-	//add process.serviceName query
+	// add process.serviceName query
 	if traceQuery.ServiceName != "" {
 		serviceNameQuery := s.buildServiceNameQuery(traceQuery.ServiceName)
 		boolQuery.Must(serviceNameQuery)
 	}
 
-	//add operationName query
+	// add operationName query
 	if traceQuery.OperationName != "" {
 		operationNameQuery := s.buildOperationNameQuery(traceQuery.OperationName)
 		boolQuery.Must(operationNameQuery)

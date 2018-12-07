@@ -198,6 +198,16 @@ func (m *Store) FindTraces(ctx context.Context, query *spanstore.TraceQueryParam
 	return retMe, nil
 }
 
+// FindTraceIDs returns all traceIDs in the query parameters are satisfied by a trace's span
+func (m *Store) FindTraceIDs(ctx context.Context, query *spanstore.TraceQueryParameters) ([]model.TraceID, error) {
+	traces, _ := m.FindTraces(ctx, query)
+	var retMe []model.TraceID
+	for _, trace := range traces {
+		retMe = append(retMe, trace.Spans[0].TraceID)
+	}
+	return retMe, nil
+}
+
 func (m *Store) validTrace(trace *model.Trace, query *spanstore.TraceQueryParameters) bool {
 	for _, span := range trace.Spans {
 		if m.validSpan(span, query) {
