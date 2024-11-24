@@ -98,6 +98,7 @@ Using template file $template with parameters:
 EOF
 
 # strip out comments, collapse multiple adjacent empty lines (cat -s), substitute variables
+set -euxf -o pipefail
 cat $template | sed \
     -e 's/--.*$//g'                                               \
     -e 's/^\s*$//g'                                               \
